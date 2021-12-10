@@ -18,9 +18,6 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
-const unifiHostname = "localhost"
-const unifiBasedir = "/var/lib/unifi"
-
 func shouldRedirect(proto, hostname, port string) bool {
 	if proto == "http" && port == ":8080" {
 		return false
@@ -34,18 +31,20 @@ func shouldRedirect(proto, hostname, port string) bool {
 }
 
 func main() {
+	target := flag.String("t", "localhost", "target controller address or hostname")
+	basedir := flag.String("b", "/var/lib/unifi", "unifi base directory")
 	mock := flag.String("m", "", "mock origin")
 	verbose := flag.Bool("v", false, "verbose")
 	flag.Parse()
 
-	controlPanelOrigin := "https://" + unifiHostname + ":8443"
-	informEndpointOrigin := "http://" + unifiHostname + ":8080"
+	controlPanelOrigin := "https://" + *target + ":8443"
+	informEndpointOrigin := "http://" + *target + ":8080"
 
 	cfg := tls.Config{InsecureSkipVerify: true}
 
 	wsProxy := websocketproxy.NewProxy(&url.URL{
 		Scheme: "wss",
-		Host:   unifiHostname + ":8443",
+		Host:   *target + ":8443",
 	})
 
 	wsProxy.Dialer = &websocket.Dialer{
@@ -68,7 +67,7 @@ func main() {
 
 	ace := mongoClient.Database("ace")
 
-	webdav := NewUnifiWebDAV(unifiBasedir, ace)
+	webdav := NewUnifiWebDAV(*basedir, ace)
 
 	http.ListenAndServe(":44412", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var port string
