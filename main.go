@@ -281,19 +281,17 @@ func main() {
 			tail += "?" + r.URL.RawQuery
 		}
 
+		var origin string = *mock
 		if proto == "" {
 			if *verbose {
 				log.Println("probably a local connection")
 			}
 
-			proto = "https"
+			origin = "https://" + unifiHostname + ":8443"
 		} else if shouldRedirect(proto, hostname, port) {
 			http.Redirect(w, r, "https://"+hostname+tail, http.StatusMovedPermanently)
 			return
-		}
-
-		var origin string = *mock
-		if origin == "" {
+		} else if origin == "" {
 			if proto == "https" {
 				if *verbose {
 					log.Println("redirecting to control panel")
