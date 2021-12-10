@@ -224,6 +224,7 @@ func shouldRedirect(proto, hostname, port string) bool {
 }
 
 func main() {
+	mock := flag.String("m", "", "mock origin")
 	verbose := flag.Bool("v", false, "verbose")
 	flag.Parse()
 
@@ -291,19 +292,21 @@ func main() {
 			return
 		}
 
-		var origin string
-		if proto == "https" {
-			if *verbose {
-				log.Println("redirecting to control panel")
-			}
+		var origin string = *mock
+		if origin == "" {
+			if proto == "https" {
+				if *verbose {
+					log.Println("redirecting to control panel")
+				}
 
-			origin = "https://" + unifiHostname + ":8443"
-		} else {
-			if *verbose {
-				log.Println("redirecting to inform endpoint")
-			}
+				origin = "https://" + unifiHostname + ":8443"
+			} else {
+				if *verbose {
+					log.Println("redirecting to inform endpoint")
+				}
 
-			origin = "http://" + unifiHostname + ":8080"
+				origin = "http://" + unifiHostname + ":8080"
+			}
 		}
 
 		if *verbose {
