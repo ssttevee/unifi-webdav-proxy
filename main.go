@@ -17,6 +17,8 @@ import (
 
 	"github.com/GehirnInc/crypt"
 	"github.com/GehirnInc/crypt/sha512_crypt"
+	"github.com/gorilla/websocket"
+	"github.com/koding/websocketproxy"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -228,9 +230,23 @@ func main() {
 	verbose := flag.Bool("v", false, "verbose")
 	flag.Parse()
 
+	controlPanelOrigin := "https://" + unifiHostname + ":8443"
+	informEndpointOrigin := "http://" + unifiHostname + ":8080"
+
+	cfg := tls.Config{InsecureSkipVerify: true}
+
+	wsProxy := websocketproxy.NewProxy(&url.URL{
+		Scheme: "wss",
+		Host:   unifiHostname + ":8443",
+	})
+
+	wsProxy.Dialer = &websocket.Dialer{
+		TLSClientConfig: &cfg,
+	}
+
 	httpClient := &http.Client{
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &cfg,
 		},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -287,7 +303,7 @@ func main() {
 				log.Println("probably a local connection")
 			}
 
-			origin = "https://" + unifiHostname + ":8443"
+			origin = controlPanelOrigin
 		} else if shouldRedirect(proto, hostname, port) {
 			http.Redirect(w, r, "https://"+hostname+tail, http.StatusMovedPermanently)
 			return
@@ -297,14 +313,19 @@ func main() {
 					log.Println("redirecting to control panel")
 				}
 
-				origin = "https://" + unifiHostname + ":8443"
+				origin = controlPanelOrigin
 			} else {
 				if *verbose {
 					log.Println("redirecting to inform endpoint")
 				}
 
-				origin = "http://" + unifiHostname + ":8080"
+				origin = informEndpointOrigin
 			}
+		}
+
+		if origin == controlPanelOrigin && websocket.IsWebSocketUpgrade(r) {
+			wsProxy.ServeHTTP(w, r)
+			return
 		}
 
 		if *verbose {

@@ -4,6 +4,7 @@ go 1.17
 
 require (
 	github.com/GehirnInc/crypt v0.0.0-20200316065508-bb7000b8a962
+	github.com/koding/websocketproxy v0.0.0-20181220232114-7ed82d81a28c
 	go.mongodb.org/mongo-driver v1.8.1
 	golang.org/x/net v0.0.0-20211208012354-db4efeb81f4b
 )
@@ -11,6 +12,7 @@ require (
 require (
 	github.com/go-stack/stack v1.8.0 // indirect
 	github.com/golang/snappy v0.0.1 // indirect
+	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect
