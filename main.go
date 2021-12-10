@@ -328,10 +328,22 @@ func main() {
 
 		for k, vs := range r.Header {
 			for _, v := range vs {
-				if strings.ToLower(k) == "origin" {
+				switch strings.ToLower(k) {
+				case "origin":
 					if (proto == "" && strings.HasSuffix(v, "://"+r.Host)) || v == proto+"://"+r.Host {
 						// only rewrite origin if it's the same host
 						v = origin
+					}
+
+				case "referer":
+					if u, err := url.Parse(v); err == nil {
+						if (proto == "" || u.Scheme == proto) && u.Host == r.Host {
+							// only rewrite referrer if it's the same host
+							v = origin + u.Path
+							if u.RawQuery != "" {
+								v += "?" + u.RawQuery
+							}
+						}
 					}
 				}
 
