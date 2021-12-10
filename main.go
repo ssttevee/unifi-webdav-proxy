@@ -329,7 +329,10 @@ func main() {
 		for k, vs := range r.Header {
 			for _, v := range vs {
 				if strings.ToLower(k) == "origin" {
-					v = origin
+					if (proto == "" && strings.HasSuffix(v, "://"+r.Host)) || v == proto+"://"+r.Host {
+						// only rewrite origin if it's the same host
+						v = origin
+					}
 				}
 
 				req2.Header.Add(k, v)
