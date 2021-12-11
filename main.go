@@ -10,10 +10,12 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 
 	"github.com/gorilla/websocket"
 	"github.com/koding/websocketproxy"
+	"github.com/rs/zerolog"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -35,7 +37,12 @@ func main() {
 	basedir := flag.String("b", "/var/lib/unifi", "unifi base directory")
 	mock := flag.String("m", "", "mock origin")
 	verbose := flag.Bool("v", false, "verbose")
+	ssh := flag.Bool("s", false, "enable ssh")
 	flag.Parse()
+
+	if *verbose {
+		logger = zerolog.New(os.Stdout)
+	}
 
 	controlPanelOrigin := "https://" + *target + ":8443"
 	informEndpointOrigin := "http://" + *target + ":8080"
@@ -68,6 +75,13 @@ func main() {
 	ace := mongoClient.Database("ace")
 
 	webdav := NewUnifiWebDAV(*basedir, ace)
+
+	var sshProxy *TCPOverWS
+	if *ssh {
+		sshProxy = &TCPOverWS{
+			dest: "localhost:22",
+		}
+	}
 
 	http.ListenAndServe(":44412", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var port string
@@ -124,7 +138,21 @@ func main() {
 		}
 
 		if origin == controlPanelOrigin && websocket.IsWebSocketUpgrade(r) {
-			wsProxy.ServeHTTP(w, r)
+			if sshProxy != nil && r.URL.Path == "/" {
+				// assume this is always from `cloudflared access ssh`
+				if *verbose {
+					log.Println("proxying ssh connection")
+				}
+
+				sshProxy.ServeHTTP(w, r)
+
+				if *verbose {
+					log.Println("ssh connection closed")
+				}
+			} else {
+				wsProxy.ServeHTTP(w, r)
+			}
+
 			return
 		}
 
