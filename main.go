@@ -120,7 +120,7 @@ func main() {
 			if origin == "" {
 				origin = controlPanelOrigin
 			}
-		} else if shouldRedirect(proto, hostname, port) {
+		} else if shouldRedirect(proto, hostname, port) && (r.Header.Get("X-Unifi-Client-Version") == "" || port != ":8443") {
 			http.Redirect(w, r, "https://"+hostname+tail, http.StatusMovedPermanently)
 			return
 		} else if origin == "" {
