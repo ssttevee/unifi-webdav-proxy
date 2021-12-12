@@ -117,7 +117,9 @@ func main() {
 				log.Println("probably a local connection")
 			}
 
-			origin = controlPanelOrigin
+			if origin == "" {
+				origin = controlPanelOrigin
+			}
 		} else if shouldRedirect(proto, hostname, port) {
 			http.Redirect(w, r, "https://"+hostname+tail, http.StatusMovedPermanently)
 			return
