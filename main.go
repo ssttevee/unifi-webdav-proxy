@@ -26,7 +26,7 @@ func shouldRedirect(proto, hostname, port string) bool {
 		return false
 	}
 
-	if proto == "https" && port == "" {
+	if proto == "https" && (port == "" || port == ":443") {
 		return false
 	}
 
