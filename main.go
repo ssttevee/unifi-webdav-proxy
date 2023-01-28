@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -198,6 +199,11 @@ func main() {
 		if pos := strings.Index(hostname, ":"); pos != -1 {
 			port = hostname[pos:]
 			hostname = hostname[:pos]
+		}
+
+		portHeader := r.Header.Get("X-Forwarded-Port")
+		if _, err := strconv.Atoi(portHeader); err == nil {
+			port = ":" + portHeader
 		}
 
 		proto := r.Header.Get("X-Forwarded-Proto")
