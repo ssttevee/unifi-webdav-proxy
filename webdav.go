@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -19,6 +20,30 @@ import (
 
 func isWebDAVUA(ua string) bool {
 	return strings.HasPrefix(ua, "WebDAVLib/") || strings.HasPrefix(ua, "WebDAVFS/") || strings.HasPrefix(ua, "Cyberduck/")
+}
+
+type FilteredWebDavFile struct {
+	webdav.File
+	prefix string
+	filter func(string) bool
+}
+
+func (f *FilteredWebDavFile) Readdir(count int) ([]fs.FileInfo, error) {
+	result, err := f.File.Readdir(count)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]fs.FileInfo, 0, len(result))
+	for _, fi := range result {
+		if !f.filter(path.Join(f.prefix, fi.Name())) {
+			continue
+		}
+
+		out = append(out, fi)
+	}
+
+	return out, nil
 }
 
 type FilteredWebDAVDir struct {
@@ -40,7 +65,16 @@ func (d *FilteredWebDAVDir) OpenFile(ctx context.Context, name string, flag int,
 		return nil, os.ErrNotExist
 	}
 
-	return d.FileSystem.OpenFile(ctx, name, flag, perm)
+	file, err := d.FileSystem.OpenFile(ctx, name, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FilteredWebDavFile{
+		File:   file,
+		prefix: name,
+		filter: d.filter,
+	}, nil
 }
 
 func (d *FilteredWebDAVDir) RemoveAll(ctx context.Context, name string) error {
