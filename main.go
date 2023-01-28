@@ -13,9 +13,9 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/koding/websocketproxy"
 	"github.com/rs/zerolog"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -104,6 +104,52 @@ func proxyToOrigin(httpClient *http.Client, w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+var wsdialer = websocket.Dialer{
+	HandshakeTimeout: 45 * time.Second,
+	TLSClientConfig: &tls.Config{
+		InsecureSkipVerify: true,
+	},
+	EnableCompression: true,
+}
+
+func RemoveWSHeaders(h http.Header) http.Header {
+	clone := h.Clone()
+	for k := range clone {
+		if strings.HasPrefix(k, "Sec-Websocket-") {
+			clone.Del(k)
+		}
+	}
+
+	clone.Del("upgrade")
+	clone.Del("connection")
+	clone.Del("origin")
+	clone.Del("accept-encoding")
+
+	return clone
+}
+
+func WSCopy(dst, src *websocket.Conn) error {
+	for {
+		t, r, err := src.NextReader()
+		if err != nil {
+			return fmt.Errorf("failed to get next reader: %w", err)
+		}
+
+		w, err := dst.NextWriter(t)
+		if err != nil {
+			return fmt.Errorf("failed to get next writer: %w", err)
+		}
+
+		if _, err := io.Copy(w, r); err != nil {
+			return fmt.Errorf("failed to copy: %w", err)
+		}
+
+		if err := w.Close(); err != nil {
+			return fmt.Errorf("failed to close: %w", err)
+		}
+	}
+}
+
 func main() {
 	target := flag.String("t", "localhost", "target controller address or hostname")
 	basedir := flag.String("b", "/var/lib/unifi", "unifi base directory")
@@ -120,15 +166,6 @@ func main() {
 	informEndpointOrigin := "http://" + *target + ":8080"
 
 	cfg := tls.Config{InsecureSkipVerify: true}
-
-	wsProxy := websocketproxy.NewProxy(&url.URL{
-		Scheme: "wss",
-		Host:   *target + ":8443",
-	})
-
-	wsProxy.Dialer = &websocket.Dialer{
-		TLSClientConfig: &cfg,
-	}
 
 	httpClient := &http.Client{
 		Transport: &http.Transport{
@@ -224,7 +261,54 @@ func main() {
 					log.Println("ssh connection closed")
 				}
 			} else {
-				wsProxy.ServeHTTP(w, r)
+				upstreamURL := *r.URL
+				upstreamURL.Scheme = "wss"
+				upstreamURL.Host = *target + ":8443"
+
+				upstream, res, err := wsdialer.Dial(upstreamURL.String(), RemoveWSHeaders(r.Header))
+				if err != nil {
+					l.Println("failed to connect to upstream websocket:", err)
+					http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+					return
+				}
+
+				defer upstream.Close()
+
+				var upgrader websocket.Upgrader
+				downstream, err := upgrader.Upgrade(w, r, RemoveWSHeaders(res.Header))
+				if err != nil {
+					// connection is already hijacked, so we can't send a response
+					l.Println("failed to upgrade connection:", err)
+					// http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
+					return
+				}
+
+				defer downstream.Close()
+
+				done := make(chan time.Time, 2)
+
+				go func() {
+					defer func() {
+						done <- time.Now()
+					}()
+
+					if err := WSCopy(upstream, downstream); err != nil {
+						l.Println("failed to copy from downstream to upstream:", err)
+					}
+				}()
+
+				go func() {
+					defer func() {
+						done <- time.Now()
+					}()
+
+					if err := WSCopy(downstream, upstream); err != nil {
+						l.Println("failed to copy from upstream to downstream:", err)
+					}
+				}()
+
+				<-done
+				return
 			}
 
 			return
