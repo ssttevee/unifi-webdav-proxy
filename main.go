@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -30,6 +31,77 @@ func shouldRedirect(proto, hostname, port string) bool {
 	}
 
 	return true
+}
+
+func proxyToOrigin(httpClient *http.Client, w http.ResponseWriter, r *http.Request, endpoint string, body io.Reader, proto, origin string) error {
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, endpoint, body)
+	if err != nil {
+		return err
+	}
+
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			lower := strings.ToLower(k)
+			if strings.HasPrefix(lower, "x-") || lower == "via" {
+				continue
+			}
+
+			switch lower {
+			case "origin":
+				if (proto == "" && strings.HasSuffix(v, "://"+r.Host)) || v == proto+"://"+r.Host {
+					// only rewrite origin if it's the same host
+					v = origin
+				}
+
+			case "referer":
+				if u, err := url.Parse(v); err == nil {
+					if (proto == "" || u.Scheme == proto) && u.Host == r.Host {
+						// only rewrite referrer if it's the same host
+						v = origin + u.Path
+						if u.RawQuery != "" {
+							v += "?" + u.RawQuery
+						}
+					}
+				}
+			}
+
+			req.Header.Add(k, v)
+		}
+	}
+
+	res, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+
+	defer res.Body.Close()
+
+	for k, vs := range res.Header {
+		for _, v := range vs {
+			if strings.ToLower(k) == "location" {
+				if u, err := url.Parse(v); err == nil {
+					u.Host = r.Host
+					v = u.String()
+				}
+			}
+
+			w.Header().Add(k, v)
+		}
+	}
+
+	var buf bytes.Buffer
+	if _, err := buf.ReadFrom(res.Body); err != nil {
+		return err
+	}
+
+	w.WriteHeader(res.StatusCode)
+
+	_, err = buf.WriteTo(w)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func main() {
@@ -172,65 +244,18 @@ func main() {
 			log.Printf("read %d bytes", n)
 		}
 
-		req2, err := http.NewRequestWithContext(r.Context(), r.Method, origin+tail, &buf)
-		if err != nil {
-			panic(err)
-		}
-
-		for k, vs := range r.Header {
-			for _, v := range vs {
-				switch strings.ToLower(k) {
-				case "origin":
-					if (proto == "" && strings.HasSuffix(v, "://"+r.Host)) || v == proto+"://"+r.Host {
-						// only rewrite origin if it's the same host
-						v = origin
-					}
-
-				case "referer":
-					if u, err := url.Parse(v); err == nil {
-						if (proto == "" || u.Scheme == proto) && u.Host == r.Host {
-							// only rewrite referrer if it's the same host
-							v = origin + u.Path
-							if u.RawQuery != "" {
-								v += "?" + u.RawQuery
-							}
-						}
-					}
+		for i := 0; ; {
+			if err := proxyToOrigin(httpClient, w, r, origin+tail, &buf, proto, origin); err != nil && !errors.Is(err, context.Canceled) {
+				if i < 5 {
+					i++
+					l.Println("retrying", err)
+					continue
 				}
 
-				req2.Header.Add(k, v)
+				panic(err)
 			}
-		}
 
-		res2, err := httpClient.Do(req2)
-		if err != nil {
-			panic(err)
-		}
-
-		defer res2.Body.Close()
-
-		for k, vs := range res2.Header {
-			for _, v := range vs {
-				if strings.ToLower(k) == "location" {
-					if u, err := url.Parse(v); err == nil {
-						u.Host = r.Host
-						v = u.String()
-					}
-				}
-
-				w.Header().Add(k, v)
-			}
-		}
-
-		w.WriteHeader(res2.StatusCode)
-
-		n, err = io.Copy(w, res2.Body)
-		if err != nil {
-			panic(err)
-		}
-
-		if *verbose {
-			log.Printf("wrote %d bytes", n)
+			break
 		}
 	}))
 }
