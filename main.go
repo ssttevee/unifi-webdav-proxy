@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -194,6 +195,16 @@ func main() {
 	}
 
 	http.ListenAndServe(":44412", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var logbuf bytes.Buffer
+		l := log.New(&logbuf, "", 0)
+		defer func() {
+			if r := recover(); r != nil {
+				l.Printf("panic: %v", r)
+				logbuf.WriteTo(os.Stderr)
+				debug.PrintStack()
+			}
+		}()
+
 		var port string
 		hostname := r.Host
 		if pos := strings.Index(hostname, ":"); pos != -1 {
