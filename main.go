@@ -44,7 +44,7 @@ func proxyToOrigin(httpClient *http.Client, w http.ResponseWriter, r *http.Reque
 	for k, vs := range r.Header {
 		for _, v := range vs {
 			lower := strings.ToLower(k)
-			if strings.HasPrefix(lower, "x-") || lower == "via" {
+			if (strings.HasPrefix(lower, "x-") && lower != "x-csrf-token") || lower == "via" {
 				continue
 			}
 
